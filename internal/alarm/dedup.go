@@ -1,6 +1,7 @@
 package alarm
 
 import (
+	"sync"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
@@ -37,8 +38,9 @@ type seenEntry struct {
 }
 
 type ReportGate struct {
-	seen  map[ReportKey]seenEntry
-	now   func() time.Time
+	mu   sync.Mutex
+	seen map[ReportKey]seenEntry
+	now  func() time.Time
 }
 
 func NewReportGate() *ReportGate {
@@ -48,7 +50,12 @@ func NewReportGate() *ReportGate {
 	}
 }
 
+// Acquire 在去重窗口内对同一 key 只放行一次。check-and-set 必须处于
+// 临界区内,否则并发上报同一池同一指标的多个 goroutine 会同时读到
+// "未登记"并全部返回 true,导致一条池弹出多条告警。
 func (g *ReportGate) Acquire(key ReportKey, window time.Duration) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	now := g.now()
 	entry, ok := g.seen[key]
 	if ok && now.Sub(entry.acquiredAt) < window {
@@ -61,12 +68,16 @@ func (g *ReportGate) Acquire(key ReportKey, window time.Duration) bool {
 }
 
 func (g *ReportGate) Seen(key ReportKey) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	now := g.now()
 	entry, ok := g.seen[key]
 	return ok && now.Sub(entry.acquiredAt) < DedupWindow
 }
 
 func (g *ReportGate) Prune(maxAge time.Duration) int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	cutoff := g.now().Add(-maxAge)
 	removed := 0
 	for key, entry := range g.seen {
@@ -79,10 +90,14 @@ func (g *ReportGate) Prune(maxAge time.Duration) int {
 }
 
 func (g *ReportGate) SnapshotSize() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	return len(g.seen)
 }
 
 func (g *ReportGate) SuppressedTotal() int {
+	g.mu.Lock()
+	defer g.mu.Unlock()
 	total := 0
 	for _, entry := range g.seen {
 		total += entry.count - 1
