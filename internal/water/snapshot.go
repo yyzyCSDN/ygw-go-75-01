@@ -18,8 +18,7 @@ func (s *Store) TakeSnapshot(pondID string) (model.WaterSnapshot, bool) {
 }
 
 func (s *Store) WriteBackSnapshot(pondID string, snap model.WaterSnapshot) {
-	s.sharedSnap = snap
-	s.cache.WriteBack(pondID, &s.sharedSnap)
+	s.cache.WriteBack(pondID, &snap)
 }
 
 func (s *Store) LatestSnapshot(pondID string) (model.WaterSnapshot, bool) {

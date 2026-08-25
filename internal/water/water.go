@@ -36,7 +36,6 @@ type Store struct {
 	monitor   *Monitor
 	bus       *alarm.Bus
 	cache     *alarm.SnapshotCache
-	sharedSnap model.WaterSnapshot
 	evaluator *alarm.SensorEvaluator
 	events    []model.TelemetryEvent
 }

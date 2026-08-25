@@ -9,7 +9,6 @@ import (
 type SnapshotCache struct {
 	mu     sync.Mutex
 	byPond map[string]*model.WaterSnapshot
-	shared model.WaterSnapshot
 }
 
 func NewSnapshotCache() *SnapshotCache {
@@ -24,8 +23,18 @@ func (c *SnapshotCache) WriteBack(pondID string, snap *model.WaterSnapshot) {
 	if snap == nil {
 		return
 	}
-	c.shared = *snap
-	c.byPond[pondID] = &c.shared
+	// Copy the snapshot into a per-pond slot so each pond owns an
+	// independent value. Sharing a single backing variable would let a
+	// later pond's write overwrite an earlier pond's cached reading.
+	c.byPond[pondID] = &model.WaterSnapshot{
+		PondID:  snap.PondID,
+		DO:      snap.DO,
+		Ammonia: snap.Ammonia,
+		Nitrite: snap.Nitrite,
+		PH:      snap.PH,
+		Temp:    snap.Temp,
+		Level:   snap.Level,
+	}
 }
 
 func (c *SnapshotCache) Latest(pondID string) (model.WaterSnapshot, bool) {
