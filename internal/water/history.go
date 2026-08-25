@@ -51,8 +51,15 @@ func (h *MetricHistory) Recent(metric model.Metric, limit int) []HistoryPoint {
 
 func (s *Store) RecordHistory(pondID string, patch MetricPatch, at time.Time) {
 	s.mu.RLock()
+	defer s.mu.RUnlock()
+	s.recordHistoryLocked(pondID, patch, at)
+}
+
+// recordHistoryLocked records the patched metrics into the pond's history.
+// The caller must hold s.mu (at least RLock); each history.MetricHistory guards
+// its own slice with its own mutex, so this stays safe under the read lock.
+func (s *Store) recordHistoryLocked(pondID string, patch MetricPatch, at time.Time) {
 	history := s.histories[pondID]
-	s.mu.RUnlock()
 	if history == nil {
 		return
 	}

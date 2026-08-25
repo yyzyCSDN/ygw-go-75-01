@@ -88,8 +88,14 @@ func (s *Store) Ponds() []*model.Pond {
 
 func (s *Store) State(pondID string) (model.WaterState, bool) {
 	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.stateLocked(pondID)
+}
+
+// stateLocked returns a snapshot copy of the current WaterState.
+// The caller must hold s.mu (at least RLock).
+func (s *Store) stateLocked(pondID string) (model.WaterState, bool) {
 	st, ok := s.states[pondID]
-	s.mu.RUnlock()
 	if !ok {
 		return model.WaterState{}, false
 	}
@@ -97,21 +103,34 @@ func (s *Store) State(pondID string) (model.WaterState, bool) {
 }
 
 func (s *Store) ApplyMetrics(pondID string, patch MetricPatch) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	st, ok := s.states[pondID]
 	if !ok {
 		return model.ErrNotFound
 	}
-	replaceMetrics(st, patch)
+	// The full read-modify-write — map lookup, metric merge, reclassify, history
+	// and telemetry — is serialized under s.mu so concurrent writers (the aerator
+	// reporting DO and the filter reporting Ammonia on the same pond) can no
+	// longer interleave and drop each other's metric. applyMetrics merges the
+	// patch in place instead of replacing the whole struct, so each writer only
+	// touches the fields it owns.
+	applyMetrics(st, patch)
 	st.UpdatedAt = time.Now()
 	st.Level = classify(st)
-	s.RecordHistory(pondID, patch, st.UpdatedAt)
-	s.record(model.NewTelemetry(model.TelemetrySensor, pondID, "metrics", 0))
+	s.recordHistoryLocked(pondID, patch, st.UpdatedAt)
+	s.recordLocked(model.NewTelemetry(model.TelemetrySensor, pondID, "metrics", 0))
 	return nil
 }
 
 func (s *Store) record(evt model.TelemetryEvent) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.recordLocked(evt)
+}
+
+// recordLocked appends a telemetry event. The caller must hold s.mu.
+func (s *Store) recordLocked(evt model.TelemetryEvent) {
 	s.events = append(s.events, evt)
 	if len(s.events) > 500 {
 		s.events = s.events[len(s.events)-500:]
@@ -151,7 +170,6 @@ func (s *Store) PollSensor(sensorID string) error {
 func (s *Store) CloseIdleConns(maxAge time.Duration) int {
 	return s.monitor.CloseIdle(maxAge)
 }
-
 
 func (s *Store) ReadSensor(sensorID string) (*model.SensorReading, error) {
 	s.mu.RLock()

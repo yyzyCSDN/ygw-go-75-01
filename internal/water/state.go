@@ -15,22 +15,26 @@ func classify(st *model.WaterState) model.Level {
 	return level
 }
 
-func replaceMetrics(st *model.WaterState, patch MetricPatch) {
-	next := model.WaterState{PondID: st.PondID}
+// applyMetrics merges the non-nil fields of patch into st in place.
+//
+// Each device only reports the subset of metrics it owns (the aerator writes DO,
+// the filter writes Ammonia, etc.), so a patch must update only its own fields
+// and leave the others untouched. A full replace here would let two concurrent
+// patches clobber each other and drop whatever the slower writer had just set.
+func applyMetrics(st *model.WaterState, patch MetricPatch) {
 	if patch.DO != nil {
-		next.DO = *patch.DO
+		st.DO = *patch.DO
 	}
 	if patch.Ammonia != nil {
-		next.Ammonia = *patch.Ammonia
+		st.Ammonia = *patch.Ammonia
 	}
 	if patch.Nitrite != nil {
-		next.Nitrite = *patch.Nitrite
+		st.Nitrite = *patch.Nitrite
 	}
 	if patch.PH != nil {
-		next.PH = *patch.PH
+		st.PH = *patch.PH
 	}
 	if patch.Temp != nil {
-		next.Temp = *patch.Temp
+		st.Temp = *patch.Temp
 	}
-	*st = next
 }
