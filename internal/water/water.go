@@ -181,7 +181,10 @@ func (s *Store) ReadSensor(sensorID string) (*model.SensorReading, error) {
 		return nil, model.ErrNotFound
 	}
 	if !sensor.Online {
-		return nil, nil
+		// Offline sensor: return an empty reading instead of nil so
+		// downstream callers don't dereference a nil pointer.
+		empty := model.EmptyReading(sensor.ID, sensor.PondID, sensor.Metric)
+		return &empty, nil
 	}
 	reading := model.SensorReading{
 		SensorID:  sensor.ID,
