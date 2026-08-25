@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>养殖循环水控制台</title>
+<style>
+body { font-family: "Microsoft YaHei", sans-serif; margin: 0; background: #f3f6f8; color: #22303c; }
+header { background: #0f4c5c; color: #fff; padding: 14px 22px; }
+header h1 { margin: 0; font-size: 20px; }
+main { max-width: 1080px; margin: 20px auto; padding: 0 16px; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.card { background: #fff; border-radius: 8px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+.card h2 { margin: 0 0 10px; font-size: 16px; }
+.metric { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px dashed #e3eaf0; }
+.metric:last-child { border-bottom: none; }
+.level { font-weight: 700; }
+.level.normal { color: #2e7d32; }
+.level.warning { color: #e65100; }
+.level.critical { color: #c62828; }
+.row { display: flex; gap: 10px; flex-wrap: wrap; }
+button { background: #0f4c5c; color: #fff; border: 0; border-radius: 5px; padding: 8px 14px; cursor: pointer; }
+button.secondary { background: #546e7a; }
+pre { background: #101b22; color: #a8e0a8; padding: 12px; border-radius: 6px; overflow: auto; max-height: 260px; }
+table { width: 100%; border-collapse: collapse; }
+th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e3eaf0; font-size: 14px; }
+</style>
+</head>
+<body>
+<header><h1>水产养殖循环水系统控制台</h1></header>
+<main>
+  <section class="grid" id="ponds"></section>
+  <section class="card" style="margin-top:14px">
+    <h2>设备状态</h2>
+    <div id="devices"></div>
+  </section>
+  <section class="card" style="margin-top:14px">
+    <h2>告警</h2>
+    <pre id="alarms">loading...</pre>
+  </section>
+</main>
+<script>
+async function json(url, options) {
+  const resp = await fetch(url, options);
+  if (!resp.ok) throw new Error(resp.status + " " + (await resp.text()));
+  return resp.json();
+}
+function levelClass(level) {
+  if (level === "warning") return "warning";
+  if (level === "critical") return "critical";
+  return "normal";
+}
+async function loadPonds() {
+  const ponds = await json("/api/ponds");
+  const box = document.getElementById("ponds");
+  box.innerHTML = "";
+  for (const pond of ponds) {
+    const st = pond.state || {};
+    const card = document.createElement("div");
+    card.className = "card";
+    const cls = levelClass(st.Level || "normal");
+    card.innerHTML = `
+      <h2>${pond.name} <span class="level ${cls}">${st.Level || "normal"}</span></h2>
+      <div class="metric"><span>溶氧 mg/L</span><b>${st.DO != null ? st.DO.toFixed(2) : "-"}</b></div>
+      <div class="metric"><span>氨氮 mg/L</span><b>${st.Ammonia != null ? st.Ammonia.toFixed(2) : "-"}</b></div>
+      <div class="metric"><span>亚硝酸盐 mg/L</span><b>${st.Nitrite != null ? st.Nitrite.toFixed(2) : "-"}</b></div>
+      <div class="metric"><span>pH</span><b>${st.PH != null ? st.PH.toFixed(1) : "-"}</b></div>
+      <div class="metric"><span>水温 ℃</span><b>${st.Temp != null ? st.Temp.toFixed(1) : "-"}</b></div>
+      <div class="metric"><span>余料</span><b>${pond.feed_balance != null ? pond.feed_balance.toFixed(1) : "-"}</b></div>
+      <div class="row" style="margin-top:10px">
+        <button onclick="feed('${pond.id}')">投喂</button>
+        <button class="secondary" onclick="restartPump('${pond.id}')">重启循环泵</button>
+      </div>`;
+    box.appendChild(card);
+  }
+}
+async function feed(pondId) {
+  await json("/api/feed", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({pond_id: pondId})});
+  refresh();
+}
+async function restartPump(pondId) {
+  await json("/api/pump/restart", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({pond_id: pondId})});
+  refresh();
+}
+async function loadDevices() {
+  const data = await json("/api/status");
+  const rows = (data.devices || []).map(d =>
+    `<tr><td>${d.id}</td><td>${d.kind}</td><td>${d.pond_id}</td><td>${d.running ? "运行" : "停止"}</td><td>${d.error || ""}</td></tr>`
+  ).join("");
+  document.getElementById("devices").innerHTML = `<table><tr><th>设备</th><th>类型</th><th>池</th><th>状态</th><th>错误</th></tr>${rows}</table>`;
+}
+async function loadAlarms() {
+  const alarms = await json("/api/alarms");
+  document.getElementById("alarms").textContent = JSON.stringify(alarms, null, 2);
+}
+function refresh() {
+  loadPonds().catch(e => console.error(e));
+  loadDevices().catch(e => console.error(e));
+  loadAlarms().catch(e => console.error(e));
+}
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>
